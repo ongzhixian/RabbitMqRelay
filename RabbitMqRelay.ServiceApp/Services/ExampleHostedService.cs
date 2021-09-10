@@ -2,18 +2,24 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using RabbitMqRelay.ServiceApp.Models;
 
 namespace RabbitMqRelay.ServiceApp.Services
 {
     public class ExampleHostedService : IHostedService
     {
         private readonly ILogger _logger;
+        private readonly MessageRouting _messageRouting;
 
         public ExampleHostedService(
             ILogger<ExampleHostedService> logger,
-            IHostApplicationLifetime appLifetime)
+            IHostApplicationLifetime appLifetime,
+            IOptions<MessageRouting> opts)
         {
             _logger = logger;
+
+            _messageRouting = opts.Value;
 
             appLifetime.ApplicationStarted.Register(OnStarted);
             appLifetime.ApplicationStopping.Register(OnStopping);

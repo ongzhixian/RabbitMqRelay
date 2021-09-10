@@ -8,7 +8,7 @@ using Microsoft.Extensions.Configuration;
 using RabbitMqRelay.ServiceApp.Services;
 using Serilog;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
-
+using RabbitMqRelay.ServiceApp.Models;
 
 namespace RabbitMqRelay.ServiceApp
 {
@@ -37,8 +37,6 @@ namespace RabbitMqRelay.ServiceApp
                     throw;
                 }
             }
-
-            
         }
 
         static IHostBuilder CreateHostBuilder(string[] args)
@@ -49,7 +47,23 @@ namespace RabbitMqRelay.ServiceApp
 
             HostBuilder builder = new HostBuilder();
 
-            builder.UseContentRoot(Directory.GetCurrentDirectory());
+            // ZX:  When running as as Windows Service, the default run-time directory path (Directory.GetCurrentDirectory()) is 'C:\Windows\System32'
+            //      This will be set as the ContentRoot if its not set explicitly.
+            //      To avoid inadvertently giving access to this important Windows directory, 
+            //      we set the ContentRoot directory to be same directory as the running executable.
+
+            // builder.UseContentRoot(Directory.GetCurrentDirectory());
+            string executingDirectory = executingDirectory = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? string.Empty;
+            builder.UseContentRoot(executingDirectory);
+
+            // This means that any relative file log path, will be based on that location.
+            // Setting content root via 'builder.UseContentRoot()' has no impact;
+
+            // ZX:  When running as a Windows Service, any relative file log path defined in Serilog configuration,
+            //      will be using 'C:\Windows\System32' as base reference path.
+            //      This cannot be changed; setting ContentRoot has no impact on this.
+            //      The only workaround is set an absolute path in the Serilog configuration
+            //      (which is probably a better practice anyways)
 
             builder.UseSerilog((hostBuilderContext, loggerConfiguration) =>
              {
@@ -62,7 +76,7 @@ namespace RabbitMqRelay.ServiceApp
                 IHostEnvironment env = hostBuilderContext.HostingEnvironment;
                 
                 configurationBuilder
-                    .AddJsonFile("appsettings.json", optional: true)
+                    .AddJsonFile("appsettings.json", optional: false)
                     .AddJsonFile($"appsettings.{env.EnvironmentName}.json", optional: true)
                     .AddJsonFile("secret.settings.json", optional: true, reloadOnChange: true);
 
@@ -71,9 +85,29 @@ namespace RabbitMqRelay.ServiceApp
 
             builder.ConfigureServices((Action<HostBuilderContext, IServiceCollection>)((hostBuilderContext, services) =>
             {
-                //services.AddHostedService<Worker>();
                 services.AddLogging();
+                
                 services.AddSingleton(Configuration);
+
+                // ZX:  We want do something neater like the below.
+                //      But we cannot get Configuration object (unless we make it 'public').
+                //      While there are probably good reasons to make Configuration, 
+                //      let's go with current setup where Configuration is static to Program class.
+                // services.Configure<MessageRouting>(MessageRouting.ReadFromConfiguration);
+
+                // So we configure MessageRouting by passing Configuration object to helper method.
+                
+                services.Configure<MessageRouting>(messageRouting => {
+                    messageRouting = MessageRouting.ReadFrom(Configuration);
+                });
+                
+
+                // Singleton: IoC container will create and share a single instance of a service throughout the application's lifetime.
+                // Transient: The IoC container will create a new instance of the specified service type every time you ask for it.
+                // Scoped: IoC container will create an instance of the specified service type once per request and will be shared in a single request.
+
+                //services.AddHostedService<Worker>();
+                
                 services.AddSingleton<IMyService, MyService>();
                 services.AddHostedService<ExampleHostedService>();
 
@@ -106,6 +140,8 @@ namespace RabbitMqRelay.ServiceApp
                 // });
 
             }));
+
+            builder.UseWindowsService();
 
             return builder;
         }
